@@ -140,9 +140,6 @@ int main(int argc, char **argv)
 			{
 				printf("dev_name:%s\n",dev_name);
 			}
-
-
-			printf("1\n");
 			dev_time = get_time();
 			if( dev_time != NULL)
 			{
@@ -152,24 +149,49 @@ int main(int argc, char **argv)
 			{
 				printf("Get current time failure : %s\n",strerror(errno));
 			}
-			printf("2\n");
+		
 			snprintf(data.d_name, 32, dev_name);
-			printf("3\n");
+			printf("data.d_name:%s\n",data.d_name);
 			snprintf(data.d_time, 32, dev_time);
-			printf("4\n");
+			printf("data.d_time:%s\n",data.d_time);
 			data.d_temp = dev_temp;
-			printf("5\n");
+			printf("data.d_temp:%.2f\n",data.d_temp);
 			dev_sqlite3(data);
 		}
 		else
 		{	
 			del_database();
-			//dev_temp = get_temperature();
-			//dev_name = get_name();
+			if( get_temperature(&dev_temp) == 0 )
+			{
+				printf("Temperature:%.2f\n",dev_temp);
+			}
+			else
+			{
+				printf("Error:%s\n",strerror(errno));
+			}
+			if( (get_name(dev_name,sizeof(dev_name))) != 0 )
+			{
+				printf("get name error:%s\n",strerror(errno));
+			}
+			else
+			{
+				printf("dev_name:%s\n",dev_name);
+			}
 			dev_time = get_time();
+			if( dev_time != NULL )
+			{
+				printf("Current time is %s\n",dev_time);
+			}
+			else
+			{
+				printf("Get now time error:%s\n",strerror(errno));
+			}
 			snprintf(data.d_name, 32, dev_name);
+			printf("data.d_name:%s\n",data.d_name);
 			snprintf(data.d_time, 32, dev_time);
+			printf("data.d_time:%s\n",data.d_time);
 			data.d_temp = dev_temp;
+			printf("data.d_temp:%.2f\n",data.d_temp);
 			internet_write(data, snd_buf);
 			internet_read(data);
 		}
@@ -187,7 +209,6 @@ float get_temperature(float *temp)
 	int					fd;
 	char				buf[1024];
 	char				*ptr;
-	//float				temp;
 	DIR					*dirp = NULL;
 	char				w1_path[64] = "/sys/bus/w1/devices/";
 	char				ds18b20_path[164];
@@ -297,7 +318,7 @@ if( read(fd2, buf2, buf2_size) < 0 )
 	printf("get devices number failure : %s\n",strerror(errno));
 	return -4;
 }
-printf("buf2:%s\n",buf2);
+//printf("buf2:%s\n",buf2);
 
 return 0;
 }
@@ -309,24 +330,19 @@ char *get_time()
 	char			*now_time = NULL;
 	setenv("TZ", "Asia/Shanghai", 1);
 	tzset();
-	printf("6\n");
 	time( &timer );
-	printf("7\n");
 	Now = localtime( &timer );
 	if( Now == NULL)
 	{
 		printf("localtime() Error: %s\n",strerror(errno));
 		return NULL;
 	}
-	printf("11\n");
-	printf("8\n");
 	now_time = asctime(Now);
 	if(now_time == NULL)
 	{
 		printf("asctime() Error : %s\n",strerror(errno));
 		return NULL;
 	}
-	printf("9\n");
 	return now_time;
 }
 
