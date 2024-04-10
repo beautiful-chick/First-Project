@@ -29,52 +29,57 @@
 #include<libgen.h>
 #include<sqlite3.h>
 #include<netinet/tcp.h>
-//#include<sqlite3ext.h>
 int			TIMEOUT;
-float		get_temperature();
-char 		*get_name();
+float		get_temperature(float *temp);
+int			get_name(char buf2[1024],size_t buf2_size);
 char		*get_time();
 int 		internet_connect();
-int			re_connect();
-//int			internet_write(DS18B20_DATA data);
+int			del_database();
 int			internet_read();
 int			get_row();
 static inline void print_usage(char *progname);
-char		buf2[1024];
-char		*now_time;
-int			conn_fd = -1;
-char		sock_buf[1024];
-int			rv = -1;
-int			cli_port;
-char   		*cli_ip;
+//char					buf2[1024];
+char					*now_time;
+int						conn_fd = -1;
+char					sock_buf[1024];
+int						rv = -1;
+int						cli_port;
+char   					*cli_ip;
 struct sockaddr_in		serv_addr;
+static char             snd_buf[1024] = {0};
+static sqlite3			*db = NULL;
 struct DS18B20_DATA
 {
 	char            d_time[64];
 	float           d_temp;
 	char            d_name[64];
 }data;
-static char                       snd_buf[1024] = {0};
+
+
 int dev_sqlite3(struct DS18B20_DATA data);
-char  *read_data();
-int			internet_write(struct DS18B20_DATA data,char *snd_buf);
-int main(int argc,char **argv)
+char  		*read_data();
+int			internet_write(struct DS18B20_DATA data, char *snd_buf);
+
+
+int main(int argc, char **argv)
 {
-//	char				*snd_buf;
-	int			opt;
-	char		*progname = NULL;
-	float 		dev_temp;
-	char		*dev_name;
-	char		*dev_time;
-	int			rv = -1;
-	progname = (char *)basename(argv[0]);
+	int					opt;
+	char				*progname = NULL;
+	float 				dev_temp;
+	char				dev_name[64];
+	char				*dev_time = NULL;
+	int					rv = -1;
+	int					rc;
+	float				temp;
+	char				name_buf[64];
+	progname = (char *)basename( argv[0] );
 	struct option		long_options[] = 
 	{
-		{"port",required_argument,NULL,'p'},
-		{"IP Address",required_argument,NULL,'i'},
-		{"time",required_argument,NULL,'t'},
-		{"help",no_argument,NULL,'h'},
-		{NULL,0,NULL,0}
+		{"port", required_argument, NULL, 'p'},
+		{"IP Address", required_argument, NULL, 'i'},
+		{"time", required_argument, NULL, 't'},
+		{"help", no_argument, NULL, 'h'},
+		{NULL, 0, NULL, 0}
 
 	};
 	while( (opt = getopt_long(argc,argv,"p:i:t:h",long_options,NULL)) != -1 )
@@ -102,73 +107,95 @@ int main(int argc,char **argv)
 		print_usage(progname);
 		return 0;
 	}
+
+	rc = sqlite3_open("dev_database", &db);
+	printf("db pointer: %p\n", (void *)db);
+
+	if( rc != SQLITE_OK)
+	{
+		fprintf(stderr,"Can't open database : %s\n",sqlite3_errmsg(db));
+		sqlite3_close(db);
+	}
+	printf("Open the dev_database ok\n");
 	while(1)
 	{
 		sleep(TIMEOUT);
-
-	/*  	dev_temp = get_temperature();
-		dev_name = get_name();
-		dev_time = get_time();
-		snprintf(data.d_name,32,dev_name);
-		snprintf(data.d_time,32,dev_time);
-		data.d_temp = dev_temp;
-
-		printf("First:%s\n",snd_buf);*/
 		rv = internet_connect(data);
 		if(rv < 0 )
-		{	 
-	  		dev_temp = get_temperature();
-			dev_name = get_name();
+		{	
+			if( get_temperature(&dev_temp) == 0 )
+			{
+				printf("Temperature:%.2f\n",dev_temp);
+			}
+			else
+			{
+				printf("Error:%s\n",strerror(errno));
+
+			}
+			if( (get_name(dev_name,sizeof(dev_name))) != 0 )
+			{
+				printf("get name error:%s\n",strerror(errno));
+			}
+			else
+			{
+				printf("dev_name:%s\n",dev_name);
+			}
+
+
+			printf("1\n");
 			dev_time = get_time();
-			snprintf(data.d_name,32,dev_name);
-			snprintf(data.d_time,32,dev_time);
+			if( dev_time != NULL)
+			{
+				printf("Current time is : %s\n",dev_time);
+			}
+			else
+			{
+				printf("Get current time failure : %s\n",strerror(errno));
+			}
+			printf("2\n");
+			snprintf(data.d_name, 32, dev_name);
+			printf("3\n");
+			snprintf(data.d_time, 32, dev_time);
+			printf("4\n");
 			data.d_temp = dev_temp;
+			printf("5\n");
 			dev_sqlite3(data);
 		}
 		else
-		{
-				re_connect(); 
-				dev_temp = get_temperature();
-				dev_name = get_name();
-				dev_time = get_time();
-				snprintf(data.d_name,32,dev_name);
-				snprintf(data.d_time,32,dev_time);
-				data.d_temp = dev_temp;
-				internet_write(data,snd_buf);
-				internet_read(data);
-				
-		
-		/*  	dev_temp = get_temperature();
-			dev_name = get_name();
+		{	
+			del_database();
+			//dev_temp = get_temperature();
+			//dev_name = get_name();
 			dev_time = get_time();
-			snprintf(data.d_name,32,dev_name);
-			snprintf(data.d_time,32,dev_time);
-			data.d_temp = dev_temp; 
-			snprintf(snd_buf,2048,"%s,%s,%.2f",data.d_time,data.d_name,data.d_temp);
-			internet_write(data);		*/
+			snprintf(data.d_name, 32, dev_name);
+			snprintf(data.d_time, 32, dev_time);
+			data.d_temp = dev_temp;
+			internet_write(data, snd_buf);
+			internet_read(data);
 		}
 	}
+//	sqlite3_close(db);
 	return 0;
 
 
 }
 
-float get_temperature(){
-	
+float get_temperature(float *temp)
+{
+
 
 	int					fd;
 	char				buf[1024];
 	char				*ptr;
-	float				temp;
+	//float				temp;
 	DIR					*dirp = NULL;
-	char				w1_path[64] = "/sys/bus/w1/devices/";//定义写文件夹的指针
-
+	char				w1_path[64] = "/sys/bus/w1/devices/";
 	char				ds18b20_path[164];
 	struct dirent		*direntp = NULL;
 	char				chip_sn[32];
 	int					found = 0;
-	/*打开文件夹*/
-	
+
+
 	dirp = opendir(w1_path);
 	if( !dirp )
 	{
@@ -176,14 +203,12 @@ float get_temperature(){
 		return -1;
 	}
 
-	/*读取文件夹中内容*/
-
 	while( NULL != (direntp = readdir(dirp)) )
 	{
-		/*查找存储温度的文件*/
+
 		if( strstr(direntp -> d_name,"28-") )
 		{
-			strncpy(chip_sn,direntp -> d_name,sizeof(chip_sn));
+			strncpy(chip_sn, direntp -> d_name, sizeof(chip_sn));
 			found = 1;
 		}
 	}
@@ -195,25 +220,24 @@ float get_temperature(){
 		return -2;
 	}
 
+
+
 	/*获取全路径到ds18b20_path中去*/
-	strncat(w1_path,chip_sn,sizeof(w1_path)-strlen(w1_path));
-	strncat(w1_path,"/w1_slave",sizeof(w1_path)-strlen(w1_path));
-	fd = open(w1_path,O_RDONLY);
+	strncat(w1_path, chip_sn, sizeof(w1_path)-strlen(w1_path));
+	strncat(w1_path, "/w1_slave", sizeof(w1_path)-strlen(w1_path));
+	fd = open(w1_path, O_RDONLY);
 	if( fd < 0 )
 	{
 		printf("Open the file failure : %s\n",strerror(errno));
 		return -1;
 	}
-
-	memset(buf,0,sizeof(buf));
-
-	if(read(fd,buf,sizeof(buf)) < 0 )
+	memset(buf, 0, sizeof(buf));
+	if(read(fd, buf, sizeof(buf)) < 0 )
 	{
 		printf("Read data from fd = %d failure : %s\n",fd,strerror(errno));
 		return -2;
 	}
-
-	ptr = strstr(buf,"t=");
+	ptr = strstr(buf, "t=");
 
 	/*判断buf是否为空*/
 
@@ -223,13 +247,16 @@ float get_temperature(){
 		return -1;
 	}
 	ptr += 2;
-	temp = atof(ptr)/1000;
-	return temp;
+	*temp = atof(ptr)/1000;
+	return 0;
 }
-char *get_name(){
+
+
+int	get_name(char buf2[1024],size_t buf2_size)
+{
 	int				fd2;
 	char			w2_path[64] = "/sys/bus/w1/devices/";
-	char			chip_sn1[32];
+	char			chip_sn1[256];
 	DIR				*dirp1 = NULL;
 	struct dirent	*direntp1 = NULL;
 	int				found1 = 0;
@@ -237,14 +264,14 @@ char *get_name(){
 	if( !dirp1 )
 	{
 		printf("Open the floder failure : %s\n",strerror(errno));
-		return NULL;
+		return -1;
 	}
 
 	while( NULL != (direntp1 = readdir(dirp1)))
 	{
 		if(strstr(direntp1 -> d_name,"28-"))
 		{
-			strncpy(chip_sn1,direntp1->d_name,sizeof(chip_sn1));
+			strncpy(chip_sn1, direntp1->d_name, sizeof(chip_sn1));
 			found1 = 1;
 		}
 	}
@@ -253,37 +280,58 @@ char *get_name(){
 	if(!found1)
 	{
 		printf("Can not find name chipset\n");
+		return -2;
 	}
-	strncat(w2_path,chip_sn1,sizeof(w2_path)-strlen(w2_path));
-	strncat(w2_path,"/name",sizeof(w2_path)-strlen(w2_path));
-	fd2 = open(w2_path,O_RDONLY);
-	if( fd2 < 0 )
-	{
-		printf("Open the file about name failure : %s\n",strerror(errno));
-		return NULL;
-	}
-	memset(buf2,0,sizeof(buf2));
-	if( read(fd2,buf2,sizeof(buf2)) < 0 )
-	{
-		printf("get devices number failure : %s\n",strerror(errno));
-		return NULL;
-	}
-	//printf("%s\n",buf2);
-	return buf2;
+
+strncat(w2_path, chip_sn1,sizeof(w2_path)-strlen(w2_path));
+strncat(w2_path, "/name",sizeof(w2_path)-strlen(w2_path));
+fd2 = open(w2_path, O_RDONLY);
+if( fd2 < 0 )
+{
+	printf("Open the file about name failure : %s\n",strerror(errno));
+	return -3;
+}
+memset(buf2, 0, buf2_size);
+if( read(fd2, buf2, buf2_size) < 0 )
+{
+	printf("get devices number failure : %s\n",strerror(errno));
+	return -4;
+}
+printf("buf2:%s\n",buf2);
+
+return 0;
 }
 
-char *get_time(){
+char *get_time()
+{
 	time_t			timer;
-	struct tm		*Now;
-	char			*now_time;
-
+	struct tm		*Now = NULL;
+	char			*now_time = NULL;
+	setenv("TZ", "Asia/Shanghai", 1);
+	tzset();
+	printf("6\n");
 	time( &timer );
+	printf("7\n");
 	Now = localtime( &timer );
+	if( Now == NULL)
+	{
+		printf("localtime() Error: %s\n",strerror(errno));
+		return NULL;
+	}
+	printf("11\n");
+	printf("8\n");
 	now_time = asctime(Now);
+	if(now_time == NULL)
+	{
+		printf("asctime() Error : %s\n",strerror(errno));
+		return NULL;
+	}
+	printf("9\n");
 	return now_time;
 }
 
-int internet_connect(struct DS18B20_DATA data){
+int internet_connect(struct DS18B20_DATA data)
+{
 	conn_fd = socket(AF_INET,SOCK_STREAM,0);	
 	if( conn_fd < 0 )
 	{
@@ -292,103 +340,92 @@ int internet_connect(struct DS18B20_DATA data){
 		return -1;
 	}
 	printf("create socket ok\n");
-	memset(&serv_addr,0,sizeof(serv_addr));
+	memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_port = htons(cli_port);
 	inet_aton(cli_ip,&serv_addr.sin_addr);
-	if( connect(conn_fd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
+
+	if( connect(conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
 	{
-		printf("Connect to server[%s:%d] failure : %s\n",cli_ip,cli_port,strerror(errno));
+		printf("Connect to server[%s:%d] failure : %s\n",cli_ip, cli_port, strerror(errno));
 		return -1;
 	}
-	
-		return 0;
+
+	return 0;
 }
 
 
-int internet_write(struct DS18B20_DATA data,char *snd_buf)
+int internet_write(struct DS18B20_DATA data, char *snd_buf)
 {
-	snprintf(snd_buf,2048,"%s,%s,%.2f",data.d_time,data.d_name,data.d_temp);
-	printf("internet_write snd_buf:%s\n",snd_buf);
-	if( write(conn_fd,snd_buf,strlen(snd_buf)) < 0 )
+	snprintf(snd_buf, 2048, "%s,%s,%.2f", data.d_time, data.d_name, data.d_temp);
+	printf("internet_write snd_buf:%s\n", snd_buf);
+	if( write(conn_fd, snd_buf, strlen(snd_buf)) < 0 )
 	{
-		printf("Wirte data to server[%s:%d] failure : %s\n",cli_ip,cli_port,strerror(errno));	
+		printf("Wirte data to server[%s:%d] failure : %s\n", cli_ip, cli_port, strerror(errno));	
 	}
 	return 0;
 }
 
-int internet_read(){
-	char 					sock_buf[1024];
-//	int						rv = -1;
-	memset(sock_buf,0,sizeof(sock_buf));
-	rv = read(conn_fd,sock_buf,sizeof(sock_buf));
+int internet_read()
+{
+	char 			sock_buf[1024];
+
+	memset(sock_buf, 0, sizeof(sock_buf));
+	rv = read(conn_fd, sock_buf, sizeof(sock_buf));
 	if( rv < 0 )
 	{
-		printf("Read data from server failure : %s\n",strerror(errno));
+		printf("Read data from server failure : %s\n", strerror(errno));
 		close(conn_fd);
 	}
 	else if( 0 == rv)
 	{
-		printf("Client connect to server failure : %s\n",strerror(errno));
+		printf("Client connect to server failure : %s\n", strerror(errno));
 	}
-	printf("Read %d bytes data from server : '%s'\n",rv,sock_buf);
+	printf("Read %d bytes data from server : '%s'\n", rv, sock_buf);
 	return 0;
 }
 
 
- int re_connect(char *snd_buf)
+int del_database(char *snd_buf)
 {
-	printf("Start to re_connect\n");
+
 	struct tcp_info				optval;
 	socklen_t 					optlen = sizeof(optval);
-	static sqlite3				*db;
+	//static sqlite3				*db;
 	static int					rc;
 	int							ret;
 	int							m;
 	char                		*err_msg;
 	int							row;
-	ret = getsockopt(conn_fd,IPPROTO_TCP,TCP_INFO,&optval,&optlen);
-	/*连接失败：继续获取数据，将数据存储在数据库中*/
-/*  	if(optval.tcpi_state != TCP_ESTABLISHED)
+
+	ret = getsockopt(conn_fd, IPPROTO_TCP, TCP_INFO, &optval, &optlen);
+
+	//sqlite3_open("dev_database.db", &db);		
+	row = get_row();
+	while(row > 1)
 	{
-		printf("disconnect\n");
-		dev_sqlite3(data);
-		printf("store ok\n");
-	}*/
-	/*重连成功：将数据库中的数据上传，并删除数据库中的数据*/
-//	else
-//	{
-		sqlite3_open("dev_database.db", &db);		
 		row = get_row();
-		while(row > 1)
+		printf("Now row:%d\n", row);
+		snd_buf = read_data();
+		write(conn_fd, snd_buf, strlen(snd_buf));
+		/*删除数据*/
+		printf("Start to delete data\n");
+		//	sqlite3_open("dev_database.db", &db);
+		char *sql = "DELETE FROM dev_mesg WHERE ROWID IN (SELECT ROWID FROM dev_mesg LIMIT 1);";
+		printf("3\n");
+		rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
+		if(rc != SQLITE_OK)
 		{
-			row = get_row();
-			printf("Now row:%d\n",row);
-			snd_buf = read_data();
-			write(conn_fd,snd_buf,strlen(snd_buf));
-			/*删除数据*/
-			printf("Start to delete data\n");
-			sqlite3_open("dev_database.db", &db);
-			char *sql = "DELETE FROM dev_mesg WHERE ROWID IN (SELECT ROWID FROM dev_mesg LIMIT 1);";
-			rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
-			if(rc != SQLITE_OK)
-			{
-				fprintf(stderr,"delete data error : %s\n",sqlite3_errmsg(db));
-				sqlite3_free(err_msg);
-			}
+			fprintf(stderr, "delete data error : %s\n", sqlite3_errmsg(db));
+			sqlite3_free(err_msg);
 		}
-					
-		sqlite3_close(db);
-				
-//	}
-			
-					
-		return 0;
+	}
+
+	//sqlite3_close(db);
+
+	return 0;
 }
 
-int del_database(){
-
-}
 
 char  *read_data()
 
@@ -396,78 +433,59 @@ char  *read_data()
 	char				*snd_buf;
 	int					rc;
 	static int			row_count; 
-	sqlite3				*db;
+	//sqlite3				*db;
 	char				*errmsg;
 	sqlite3_stmt		*stmt;
-	rc = sqlite3_open("dev_database.db",&db);
-	if( rc != SQLITE_OK)
-	{
-		fprintf(stderr,"Can't open database : %s\n",sqlite3_errmsg(db));
-		sqlite3_close(db);
-		return NULL;
-	}
-	printf("Open the database ok\n");
+
+	//rc = sqlite3_open("dev_database.db",&db);
+	/*  	if( rc != SQLITE_OK)
+			{
+			fprintf(stderr, "Can't open database : %s\n", sqlite3_errmsg(db));
+			sqlite3_close(db);
+			return NULL;
+			}
+			printf("Open the database ok\n");*/
 
 	const char *sql = "SELECT * FROM dev_mesg LIMIT 1;";
-	rc = sqlite3_prepare_v2(db,sql,-1,&stmt,0);
+	rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
 	if( rc != SQLITE_OK)
 	{
-		fprintf(stderr,"Failed to prepare statement : %s\n",sqlite3_errmsg(db));
-		sqlite3_close(db);
+		fprintf(stderr, "Failed to prepare statement : %s\n", sqlite3_errmsg(db));
+		//	sqlite3_close(db);
 		return NULL;
 	}
-//	while( (rc = sqlite3_step(stmt)) == SQLITE_ROW )
-//	{
-		rc = sqlite3_step(stmt);
-		if(rc == SQLITE_ROW)
-		{
-			const char *de_name = (const char *)sqlite3_column_text(stmt,0);
-			const char *de_time = (const char *)sqlite3_column_text(stmt,1);
-			double de_temp = sqlite3_column_double(stmt,2);
-			printf("de_name: %s, de_time: %s, de_temp: %.2f\n", de_name, de_time, de_temp);
-			memset(snd_buf,0,strlen(snd_buf));
-			snprintf(snd_buf,2048,"%s,%s,%.2f",de_time,de_name,de_temp);
-			printf("%s",snd_buf);
-		
-		}
+
+	rc = sqlite3_step(stmt);
+	if(rc == SQLITE_ROW)
+	{
+		const char *de_name = (const char *)sqlite3_column_text(stmt,0);
+		const char *de_time = (const char *)sqlite3_column_text(stmt,1);
+		double de_temp = sqlite3_column_double(stmt,2);
+		printf("de_name: %s, de_time: %s, de_temp: %.2f\n", de_name, de_time, de_temp);
+		memset(snd_buf,0,strlen(snd_buf));
+		snprintf(snd_buf,2048,"%s,%s,%.2f", de_time, de_name, de_temp);
+		printf("%s", snd_buf);
+
+	}
 	sqlite3_finalize(stmt);
-	 return snd_buf;
-	
+	return snd_buf;
+
 
 }
+
 int get_row()
 {
 	static int 			row_count;
 	int					rc;
 	sqlite3_stmt		*stmt;
-	sqlite3				*db;
-	rc = sqlite3_open("dev_database.db",&db);
+	//sqlite3				*db;
 
-	
-#if 0
-	const char *sql = "SELECT * FROM dev_mesg;";
-	int					nRow = 0, nColumn = 0;
-	char				**dbResult;
-	char				*errmsg;
-
-	rc = sqlite3_get_table(db, sql, &dbResult, &nRow, &nColumn, &errmsg);
-	if( rc != SQLITE_OK )
-	{
-		sqlite3_free(errmsg);
-		return -1;
-	}
-	else
-	{
-		return nRow;
-	}
-#endif
-
-#if 1
+	//rc = sqlite3_open("dev_database.db",&db);
 	const char *sql = "SELECT COUNT(*) FROM dev_mesg;";
-	rc = sqlite3_prepare_v2(db,sql,-1,&stmt,NULL);
+	rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
 	if( rc != SQLITE_OK )
 	{
-		fprintf(stderr,"Failed to prepare statement:%s\n",sqlite3_errmsg(db));
+		fprintf(stderr, "Failed to prepare statement:%s\n", sqlite3_errmsg(db));
 		sqlite3_close(db);
 		return -1;
 	}
@@ -481,36 +499,35 @@ int get_row()
 		fprintf(stderr,"Error executing query: %s\n",sqlite3_errmsg(db));
 	}
 	sqlite3_finalize(stmt);
-	sqlite3_close(db);
-	return row_count;
-#endif	
+	//sqlite3_close(db);
+	return row_count;	
 }
 
 
 int dev_sqlite3(struct DS18B20_DATA data)
 {
-
-	printf("start sqlite\n");
 	int 		rc;
-	sqlite3		*db;
+	//sqlite3		*db;
 	char 		*err_msg = 0;
 	char		*sql = 0;
-	rc = sqlite3_open("dev_database.db",&db);
-	if( rc != SQLITE_OK)
+	printf("db pointer(in the dev_sqlite3): %p\n", (void *)db);
+
+	rc = sqlite3_open("dev_database.db", &db);
+	/* 	if( rc != SQLITE_OK)
 	{
-		fprintf(stderr,"Can not open database : %s\n",sqlite3_errmsg(db));
+		fprintf(stderr,"Can not open database : %s\n", sqlite3_errmsg(db));
 		sqlite3_close(db);
 		return -1;
-	}
+	}*/
 	const char *sql_stmt = 
 		"CREATE TABLE IF NOT EXISTS dev_mesg ("
 		"de_name TEXT NOT NULL,"
 		"de_time TEXT NOT NULL,"
 		"de_temp REAL NOT NULL);";
-	rc = sqlite3_exec(db,sql_stmt,0,0,&err_msg);
+	rc = sqlite3_exec(db, sql_stmt, 0, 0, &err_msg);
 	if( rc != SQLITE_OK )
 	{
-		fprintf(stderr,"create table error:%s\n",err_msg);
+		fprintf(stderr, "create table error:%s\n", err_msg);
 		sqlite3_free(err_msg);
 		return -1;
 	}
@@ -518,22 +535,22 @@ int dev_sqlite3(struct DS18B20_DATA data)
 	sql = sqlite3_mprintf("INSERT INTO dev_mesg (de_name,de_time,de_temp) VALUES ('%s','%s',%.2f);",data.d_name,data.d_time,data.d_temp);
 	rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
 	if (rc != SQLITE_OK) 
-	 {
+	{
 		fprintf(stderr, "give values error: %s\n", err_msg);
 		sqlite3_free(err_msg);
 		sqlite3_close(db);
 		return -1;
 	}
 	printf("Record inserted successfully\n");
-	sqlite3_close(db);
+	//sqlite3_close(db);
 
 	return 0;
 }
 
 static inline void print_usage(char *progname)
 {
-	printf("Usage: %s [OPTION]...\n",progname);
-	printf("%s is a socket server program,which used to verify client and echo back string from it\n",progname);
+	printf("Usage: %s [OPTION]...\n", progname);
+	printf("%s is a socket server program,which used to verify client and echo back string from it\n", progname);
 	printf("\nMandatory arguments to long options are mandatory for short options too:\n");
 	printf("-i[IP Address]\n");
 	printf("-p[Port]\n");
