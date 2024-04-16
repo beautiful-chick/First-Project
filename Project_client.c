@@ -31,9 +31,6 @@
 #include<netinet/tcp.h>
 
 
-int						conn_fd = -1;
-int						cli_port;
-char   					*cli_ip;
 static sqlite3			*db = NULL;
 
 struct DS18B20_DATA
@@ -42,6 +39,17 @@ struct DS18B20_DATA
 	float           d_temp;
 	char            d_name[64];
 }data;
+
+
+typedef struct socket_s
+{
+	int			conn_fd;
+	char		host[64];
+	int			cli_port;
+} socket_t;
+socket_t			so;
+socket_t			*my_socket = &so;
+
 
 float		get_temperature(float *temp);
 int			get_name(char buf2[1024],size_t buf2_size);
@@ -56,6 +64,7 @@ int 		dev_sqlite3();
 char  		*read_data();
 int			internet_write(struct DS18B20_DATA data, char *snd_buf);
 int			extract_data(char *snd_buf);
+int assign_data(char dev_name[64], char *dev_time, float dev_temp,struct DS18B20_DATA *data);
 
 int main(int argc, char **argv)
 {
@@ -79,8 +88,8 @@ int main(int argc, char **argv)
 	int					row;
 	double				time_diff;
  	char     	        snd_buf[1024] = {0};
+	//socket_t			my_socket;
 	
-
 	progname = (char *)basename( argv[0] );
 	struct option		long_options[] = 
 	{
@@ -96,10 +105,10 @@ int main(int argc, char **argv)
 		switch(opt)
 		{
 			case 'p':
-				cli_port = atoi(optarg);
+				my_socket->cli_port = atoi(optarg);
 				break;
 			case 'i':
-				cli_ip = optarg;
+				strcpy(my_socket->host, optarg);
 				break;
 			case 't':
 				timeout = atoi(optarg);
@@ -113,7 +122,7 @@ int main(int argc, char **argv)
 	}
 
 
-	if( !timeout || !cli_ip || !cli_port)
+	if( !timeout || !my_socket->host[64] || !my_socket->cli_port)
 	{
 		print_usage(progname);
 		return 0;
@@ -164,37 +173,47 @@ int main(int argc, char **argv)
 			}
 
 
-			snprintf(data.d_name,32,dev_name);
+			int m = assign_data(dev_name,dev_time,dev_temp,&data);
+			if( m != 0)
+			{
+				printf("assign_data error\n");
+			}
+			else
+			{
+				printf("assign_data ok\n");
+			}
+/*  		snprintf(data.d_name,32,dev_name);
 			printf("data.d_name:%s\n",data.d_name);
 			snprintf(data.d_time,32,dev_time);
 			printf("data.d_time:%s\n",data.d_time);
 			data.d_temp = dev_temp;
-			printf("data.d_temp:%.2f\n",data.d_temp);
+			printf("data.d_temp:%.2f\n",data.d_temp);*/
 			printf("after caiyang:data.d_name:%s------data.d_time:%s-----------data.d_temp:%.2f\n",data.d_name,data.d_time,data.d_temp);
 			last_time = now_time;
 			flag = 1;
 
-			ret = getsockopt(conn_fd, IPPROTO_TCP, TCP_INFO, &optval, &optlen);
+			ret = getsockopt(my_socket->conn_fd, IPPROTO_TCP, TCP_INFO, &optval, &optlen);
 	}
 		sleep(2);
 		/*判断是否有网络连接,ret不等于0代表没有网络连接*/
 		//internet_connect();
-		ret = getsockopt(conn_fd, IPPROTO_TCP, TCP_INFO, &optval, &optlen);
+		ret = getsockopt(my_socket->conn_fd, IPPROTO_TCP, TCP_INFO, &optval, &optlen);
 		printf("ret:%d\n",ret);
 
-
+		printf("if(ret != 0)\n");
 		if( ret != 0 )
 		{
 			/*重连socket*/
 			rv = internet_connect();
 			printf("rv:%d\n",rv);
+			printf("99999999999999999\n");
 			printf("m11111111111111111111111111111\n");
 		
 		/*重连失败，采集的数据写到数据库中*/
 			if(rv < 0 )
 			{	
 
-				close(conn_fd);
+				close(my_socket->conn_fd);
 				if( flag == 1 )
 				{
 					printf("The internet disconnedted\n");
@@ -410,13 +429,15 @@ char *get_time(char *now_time)
 int internet_connect(struct DS18B20_DATA data)
 {
 	struct sockaddr_in		serv_addr;
+	//char					(*ptr)[64] = &my_socket.host;
 
-	conn_fd = socket(AF_INET,SOCK_STREAM,0);	
 
-	if( conn_fd < 0 )
+	my_socket->conn_fd = socket(AF_INET,SOCK_STREAM,0);	
+
+	if( my_socket->conn_fd < 0 )
 	{
 		printf("Create socket failure : %s\n",strerror(errno));
-		close(conn_fd);
+		close(my_socket->conn_fd);
 		return -1;
 	}
 	printf("create socket ok\n");
@@ -424,15 +445,24 @@ int internet_connect(struct DS18B20_DATA data)
 
 	memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_port = htons(cli_port);
-	inet_aton(cli_ip,&serv_addr.sin_addr);
-
-	if( connect(conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+	printf("1111111\n");
+	serv_addr.sin_port = htons(my_socket->cli_port);
+	printf("2222222\n");
+	if( inet_aton(my_socket->host, &serv_addr.sin_addr) == 0 )
 	{
-		printf("Connect to server[%s:%d] failure : %s\n",cli_ip, cli_port, strerror(errno));
+		printf("Invalid IP address: %s\n", my_socket->host);
+		close(my_socket->conn_fd);
 		return -1;
 	}
+	printf("3333333333333333\n");
 
+
+	if( connect(my_socket->conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+	{
+		printf("Connect to server[%s:%d] failure : %s\n",my_socket->host, my_socket->cli_port, strerror(errno));
+		return -1;
+	}
+	printf("44444444444444444444\n");
 	return 0;
 }
 
@@ -443,9 +473,9 @@ int internet_write(struct DS18B20_DATA data, char *snd_buf)
 	printf("internet_write snd_buf:%s\n", snd_buf);
 
 
-	if( write(conn_fd, snd_buf, strlen(snd_buf)) < 0 )
+	if( write(my_socket->conn_fd, snd_buf, strlen(snd_buf)) < 0 )
 	{
-		printf("Wirte data to server[%s:%d] failure : %s\n", cli_ip, cli_port, strerror(errno));	
+		printf("Wirte data to server[%s:%d] failure : %s\n", my_socket->host[64], my_socket->cli_port, strerror(errno));	
 	}
 	return 0;
 }
@@ -457,13 +487,13 @@ int internet_read()
 
 
 	memset(sock_buf, 0, sizeof(sock_buf));
-	rv = read(conn_fd, sock_buf, sizeof(sock_buf));
+	rv = read(my_socket->conn_fd, sock_buf, sizeof(sock_buf));
 
 
 	if( rv < 0 )
 	{
 		printf("Read data from server failure : %s\n", strerror(errno));
-		close(conn_fd);
+		close(my_socket->conn_fd);
 	}
 	else if( 0 == rv)
 	{
@@ -481,7 +511,7 @@ int extract_data(char *snd_buf)
 	snd_buf = read_data();
 
 	printf("In the extract_data() snd_buf:%s\n",snd_buf);
-	write(conn_fd, snd_buf, strlen(snd_buf));
+	write(my_socket->conn_fd, snd_buf, strlen(snd_buf));
 	return 0;
 }
 
@@ -664,4 +694,21 @@ static inline void print_usage(char *progname)
 	printf("-p[Port]\n");
 	printf("-t[time]\n");
 	return ;
+}
+
+int assign_data(char dev_name[64], char *dev_time, float dev_temp,struct DS18B20_DATA *data)
+{
+	printf("---------------------------------------------------\n");
+	printf("dev_name: %s\n", dev_name);
+	printf("dev_time: %s\n", dev_time);
+	printf("dev_temp: %.2f\n", dev_temp);
+
+	snprintf(data->d_name,32,dev_name);
+	printf("data->d_name:%s\n",data->d_name);
+	snprintf(data->d_time,32,dev_time);
+	printf("data->d_time:%s\n",data->d_time);
+	data->d_temp = dev_temp;
+	printf("data->d_temp:%.2f\n",data->d_temp);
+	return 0;
+
 }
